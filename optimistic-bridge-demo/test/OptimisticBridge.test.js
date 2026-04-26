@@ -142,4 +142,124 @@ describe("Optimistic Bridge Demo", function () {
 
     expect(await targetBridge.getStatus(messageId)).to.equal(3n);
   });
+
+  it("边界测试一：挑战期未结束时，消息不能被最终确认", async function () {
+    const sourceNonce = 1;
+    const amount = 100n;
+    const data = "cannot finalize before challenge period ends";
+
+    await sourceBridge
+      .connect(user)
+      .sendMessage(receiver.address, amount, data);
+
+    await targetBridge
+      .connect(relayer)
+      .submitMessage(
+        sourceChainId,
+        sourceBridgeAddress,
+        sourceNonce,
+        user.address,
+        receiver.address,
+        amount,
+        data
+      );
+
+    const messageId = await targetBridge.getMessageId(
+      sourceChainId,
+      sourceBridgeAddress,
+      sourceNonce
+    );
+
+    await expect(
+      targetBridge.finalizeMessage(messageId)
+    ).to.be.revertedWith("challenge period is not over");
+
+    expect(await targetBridge.getStatus(messageId)).to.equal(1n);
+  });
+
+  it("边界测试二：挑战期结束后，观察者不能再发起挑战", async function () {
+    const sourceNonce = 1;
+    const realAmount = 100n;
+    const fakeAmount = 999n;
+    const data = "challenge too late";
+
+    await sourceBridge
+      .connect(user)
+      .sendMessage(receiver.address, realAmount, data);
+
+    await targetBridge
+      .connect(relayer)
+      .submitMessage(
+        sourceChainId,
+        sourceBridgeAddress,
+        sourceNonce,
+        user.address,
+        receiver.address,
+        fakeAmount,
+        data
+      );
+
+    const messageId = await targetBridge.getMessageId(
+      sourceChainId,
+      sourceBridgeAddress,
+      sourceNonce
+    );
+
+    const realSourceMessageHash = await sourceBridge.getMessageHash(sourceNonce);
+
+    await time.increase(CHALLENGE_PERIOD + 1);
+
+    await expect(
+      targetBridge
+        .connect(watcher)
+        .challengeMessage(messageId, realSourceMessageHash)
+    ).to.be.revertedWith("challenge period has ended");
+
+    expect(await targetBridge.getStatus(messageId)).to.equal(1n);
+  });
+
+  it("边界测试三：被挑战成功的消息不能再被最终确认", async function () {
+    const sourceNonce = 1;
+    const realAmount = 100n;
+    const fakeAmount = 999n;
+    const data = "challenged message cannot be finalized";
+
+    await sourceBridge
+      .connect(user)
+      .sendMessage(receiver.address, realAmount, data);
+
+    await targetBridge
+      .connect(relayer)
+      .submitMessage(
+        sourceChainId,
+        sourceBridgeAddress,
+        sourceNonce,
+        user.address,
+        receiver.address,
+        fakeAmount,
+        data
+      );
+
+    const messageId = await targetBridge.getMessageId(
+      sourceChainId,
+      sourceBridgeAddress,
+      sourceNonce
+    );
+
+    const realSourceMessageHash = await sourceBridge.getMessageHash(sourceNonce);
+
+    await targetBridge
+      .connect(watcher)
+      .challengeMessage(messageId, realSourceMessageHash);
+
+    expect(await targetBridge.getStatus(messageId)).to.equal(2n);
+
+    await time.increase(CHALLENGE_PERIOD + 1);
+
+    await expect(
+      targetBridge.finalizeMessage(messageId)
+    ).to.be.revertedWith("message is not pending");
+
+    expect(await targetBridge.getStatus(messageId)).to.equal(2n);
+  });
 });
