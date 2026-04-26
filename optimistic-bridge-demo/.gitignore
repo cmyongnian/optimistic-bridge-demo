@@ -1,0 +1,14 @@
+# Node 依赖
+node_modules/
+
+# Hardhat 编译缓存和产物
+cache/
+artifacts/
+
+# 环境变量
+.env
+
+# 日志
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
